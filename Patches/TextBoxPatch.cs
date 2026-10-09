@@ -22,7 +22,7 @@ public static class TextBoxPatch
     [HarmonyPrefix]
     // Use the character provided by IsCharAllowed directly.
     // Tracking a separate character position desyncs when the caret is moved.
-    public static bool ValidateChatCharacter(char c, ref bool __result)
+    public static bool ValidateChatCharacter([HarmonyArgument(0)] char c, ref bool __result)
     {
         // Do not interfere with IME composition input.
         if (!string.IsNullOrEmpty(Input.compositionString))
@@ -58,9 +58,7 @@ public static class TextBoxPatch
             {
                 Destroy();
                 IsInvalidCommand = false;
-                Color textColor = Main.DarkTheme.Value ? Color.white : Color.black;
-                __instance.compoText.Color(textColor);
-                __instance.outputText.color = textColor;
+                ResetTextColor(__instance);
                 return;
             }
 
@@ -72,11 +70,11 @@ public static class TextBoxPatch
 
             foreach (Command cmd in Command.AllCommands)
             {
-                string[] commandForms = english ? [.. cmd.CommandForms.TakeWhile(x => x.All(char.IsAscii))] : cmd.CommandForms;
+                string[] commandForms = english ? [.. cmd.CommandForms.TakeWhile(x => x.All(CharHelpers.IsAscii))] : cmd.CommandForms;
 
                 foreach (string form in commandForms)
                 {
-                    if (english && !form.All(char.IsAscii)) continue;
+                    if (english && !form.All(CharHelpers.IsAscii)) continue;
 
                     string check = "/" + form;
                     if (check.Length < inputCheck.Length) continue;
@@ -126,9 +124,7 @@ public static class TextBoxPatch
             if (IsInvalidCommand)
             {
                 IsInvalidCommand = false;
-                Color textColor = Main.DarkTheme.Value ? Color.white : Color.black;
-                __instance.compoText.Color(textColor);
-                __instance.outputText.color = textColor;
+                ResetTextColor(__instance);
             }
 
             HudManager hud = HudManager.Instance;
@@ -172,7 +168,7 @@ public static class TextBoxPatch
             }
 
             string inputForm = input.TrimStart('/');
-            string text = "/" + (startsWithCmd ? "cmd " : string.Empty) + (exactMatch ? inputForm : command.CommandForms.TakeWhile(x => x.All(char.IsAscii) && x.StartsWith(inputForm)).MaxBy(x => x.Length));
+            string text = "/" + (startsWithCmd ? "cmd " : string.Empty) + (exactMatch ? inputForm : command.CommandForms.TakeWhile(x => x.All(CharHelpers.IsAscii) && x.StartsWith(inputForm)).MaxBy(x => x.Length));
             var info = $"<b>{command.Description}</b>";
 
             if (!command.CanUseCommand(PlayerControl.LocalPlayer))
@@ -298,6 +294,17 @@ public static class TextBoxPatch
                 if (showLobbyCode) AdditionalInfoText.text = $"\n\n{Translator.GetString("LobbyCode")}:\n<size=250%><b>{GameCode.IntToGameName(AmongUsClient.Instance.GameId)}</b></size>";
             }
         }
+    }
+
+    private static void ResetTextColor(TextBoxTMP __instance)
+    {
+#if IL2CPP
+        Color textColor = Color.black;
+#else
+        Color textColor = Main.DarkTheme.Value ? Color.white : Color.black;
+#endif
+        __instance.compoText.Color(textColor);
+        __instance.outputText.color = textColor;
     }
 
     public static void OnTabPress(ChatController __instance)

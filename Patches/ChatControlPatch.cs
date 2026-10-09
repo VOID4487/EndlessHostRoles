@@ -1,4 +1,7 @@
 using System;
+#if !IL2CPP
+using System.Collections;
+#endif
 using System.Collections.Generic;
 using System.Linq;
 using AmongUs.Data;
@@ -14,9 +17,11 @@ namespace EHR;
 [HarmonyPatch(typeof(ChatController), nameof(ChatController.Awake))]
 static class ChatControllerAwakePatch 
 {
+#if !IL2CPP
     private static SpriteRenderer QuickChatIcon;
     private static SpriteRenderer OpenBanMenuIcon;
     private static SpriteRenderer OpenKeyboardIcon;
+#endif
 
     public static readonly Color32 DarkBackgroundColor = new(40, 40, 40, byte.MaxValue);
     
@@ -25,7 +30,9 @@ static class ChatControllerAwakePatch
         if (AmongUsClient.Instance.AmHost && DataManager.Settings.Multiplayer.ChatMode == QuickChatModes.QuickChatOnly)
             DataManager.Settings.Multiplayer.ChatMode = QuickChatModes.FreeChatOrQuickChat;
         
-        var chatBubble = __instance.chatBubblePool.Prefab.CastFast<ChatBubble>();
+        var chatBubble = __instance.chatBubblePool.Prefab as ChatBubble;
+        if (chatBubble == null) return;
+
         chatBubble.TextArea.overrideColorTags = false;
         
         if (Main.DarkTheme.Value)
@@ -33,6 +40,7 @@ static class ChatControllerAwakePatch
             chatBubble.TextArea.color = Color.white;
             chatBubble.Background.color = new(0.1f, 0.1f, 0.1f, 1f);
             
+#if !IL2CPP
             __instance.freeChatField.background.color = DarkBackgroundColor;
 
             if (!TextBoxPatch.IsInvalidCommand)
@@ -43,19 +51,20 @@ static class ChatControllerAwakePatch
 
             __instance.quickChatField.background.color = DarkBackgroundColor;
             __instance.quickChatField.text.color = Color.white;
-        
+
             Main.Instance.StartCoroutine(Coroutine());
+#endif
         }
         else
             __instance.freeChatField.textArea.outputText.color = Color.black;
-        
+#if !IL2CPP
         return;
 
-        System.Collections.IEnumerator Coroutine()
+        IEnumerator Coroutine()
         {
             while (__instance)
             {
-                if (__instance.IsOpenOrOpening)
+                if (__instance.State is ChatControllerState.Open or ChatControllerState.Opening or ChatControllerState.Closing)
                 {
                     __instance.freeChatField.background.color = DarkBackgroundColor;
                 
@@ -68,10 +77,17 @@ static class ChatControllerAwakePatch
                     if (!OpenKeyboardIcon) OpenKeyboardIcon = GameObject.Find("OpenKeyboardIcon")?.transform.GetComponent<SpriteRenderer>();
                     if (OpenKeyboardIcon) OpenKeyboardIcon.sprite = Utils.LoadSprite("EHR.Resources.Images.DarkKeyboard.png", 100f);
                 }
+
+                if (!Main.DarkTheme.Value)
+                {
+                    __instance.freeChatField.textArea.outputText.color = Color.black;
+                    yield break;
+                }
                 
                 yield return null;
             }
         }
+#endif
     }
 }
 

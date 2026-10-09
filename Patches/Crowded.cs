@@ -1,11 +1,11 @@
-using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using AmongUs.GameOptions;
 using HarmonyLib;
+#if IL2CPP
 using Il2CppInterop.Runtime.Attributes;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
+#endif
 using TMPro;
 using UnityEngine;
 using static EHR.GameStates;
@@ -20,6 +20,21 @@ internal static class Crowded
     private static CreateOptionsPicker Instance;
     public static readonly int MaxImpostors = GameOptionsManager.Instance.currentHostOptions.MaxPlayers / 2;
     private static int MaxPlayers => CurrentServerType == ServerType.Vanilla ? 15 : 127;
+    
+    [HarmonyPatch(typeof(CreateGameOptions), nameof(CreateGameOptions.Confirm))]
+    public static class CreateGameOptionsConfirm
+    {
+        public static bool Prefix(CreateGameOptions __instance)
+        {
+            if (!DestroyableSingleton<MatchMaker>.Instance.Connecting(__instance)) return false;
+            __instance.logger.Info("Hosting an online game");
+            // - skip player count and impostor count checks -
+            GameOptionsManager.Instance.GameHostOptions.TryGetInt(Int32OptionNames.NumImpostors, out int num);
+            if (num == 0) GameOptionsManager.Instance.GameHostOptions.SetInt(Int32OptionNames.NumImpostors, 1);
+            __instance.CoStartGame();
+            return false;
+        }
+    }
 
     [HarmonyPatch(typeof(CreateOptionsPicker), nameof(CreateOptionsPicker.Awake))]
     public static class CreateOptionsPickerAwake
@@ -51,7 +66,7 @@ internal static class Crowded
                 var firstButtonButton = firstButtonRenderer.GetComponent<PassiveButton>();
                 firstButtonButton.OnClick.RemoveAllListeners();
 
-                firstButtonButton.OnClick.AddListener((Action)(() =>
+                firstButtonButton.OnClick.AddListener(() =>
                 {
                     for (var i = 1; i < 11; i++)
                     {
@@ -62,7 +77,7 @@ internal static class Crowded
                     }
 
                     __instance.UpdateMaxPlayersButtons(__instance.GetTargetOptions());
-                }));
+                });
 
                 Object.Destroy(firstButtonRenderer);
                 var lastButtonRenderer = __instance.MaxPlayerButtons[^1]; // Must use 'var' here to avoid compiler errors
@@ -71,7 +86,7 @@ internal static class Crowded
                 var lastButtonButton = lastButtonRenderer.GetComponent<PassiveButton>();
                 lastButtonButton.OnClick.RemoveAllListeners();
 
-                lastButtonButton.OnClick.AddListener((Action)(() =>
+                lastButtonButton.OnClick.AddListener(() =>
                 {
                     for (var i = 1; i < 11; i++)
                     {
@@ -85,7 +100,7 @@ internal static class Crowded
                     }
 
                     __instance.UpdateMaxPlayersButtons(__instance.GetTargetOptions());
-                }));
+                });
 
                 Object.Destroy(lastButtonRenderer);
 
@@ -95,14 +110,14 @@ internal static class Crowded
                     var text = playerButton.GetComponentInChildren<TextMeshPro>();
                     playerButton.OnClick.RemoveAllListeners();
 
-                    playerButton.OnClick.AddListener((Action)(() =>
+                    playerButton.OnClick.AddListener(() =>
                     {
                         byte maxPlayers = byte.Parse(text.text);
                         int maxImp = Mathf.Min(__instance.GetTargetOptions().NumImpostors, maxPlayers / 2);
                         __instance.GetTargetOptions().SetInt(Int32OptionNames.NumImpostors, maxImp);
                         __instance.ImpostorButtons[1].TextMesh.text = maxImp.ToString();
                         __instance.SetMaxPlayersButtons(maxPlayers);
-                    }));
+                    });
                 }
 
                 foreach (SpriteRenderer button in __instance.MaxPlayerButtons)
@@ -112,7 +127,7 @@ internal static class Crowded
             {
                 ImpostorsOptionButton secondButton = __instance.ImpostorButtons[1];
                 secondButton.SpriteRenderer.enabled = false;
-                Object.Destroy(secondButton.transform.FindChild("ConsoleHighlight").gameObject);
+                Object.Destroy(secondButton.transform.Find("ConsoleHighlight").gameObject);
                 Object.Destroy(secondButton.PassiveButton);
                 Object.Destroy(secondButton.BoxCollider);
                 TextMeshPro secondButtonText = secondButton.TextMesh;
@@ -123,7 +138,7 @@ internal static class Crowded
                 PassiveButton firstPassiveButton = firstButton.PassiveButton;
                 firstPassiveButton.OnClick.RemoveAllListeners();
 
-                firstPassiveButton.OnClick.AddListener((Action)(() =>
+                firstPassiveButton.OnClick.AddListener(() =>
                 {
                     int newVal = Mathf.Clamp(
                         byte.Parse(secondButtonText.text) - 1,
@@ -133,7 +148,7 @@ internal static class Crowded
 
                     __instance.SetImpostorButtons(newVal);
                     secondButtonText.text = newVal.ToString();
-                }));
+                });
 
                 ImpostorsOptionButton thirdButton = __instance.ImpostorButtons[2];
                 thirdButton.SpriteRenderer.enabled = false;
@@ -141,7 +156,7 @@ internal static class Crowded
                 PassiveButton thirdPassiveButton = thirdButton.PassiveButton;
                 thirdPassiveButton.OnClick.RemoveAllListeners();
 
-                thirdPassiveButton.OnClick.AddListener((Action)(() =>
+                thirdPassiveButton.OnClick.AddListener(() =>
                 {
                     int newVal = Mathf.Clamp(
                         byte.Parse(secondButtonText.text) + 1,
@@ -151,7 +166,7 @@ internal static class Crowded
 
                     __instance.SetImpostorButtons(newVal);
                     secondButtonText.text = newVal.ToString();
-                }));
+                });
             }
         }
     }
@@ -266,27 +281,17 @@ internal static class Crowded
         }
     }
 
-    [HarmonyPatch(typeof(NormalGameOptionsV11), nameof(NormalGameOptionsV11.AreInvalid))]
+    [HarmonyPatch(typeof(NormalGameOptionsV12), nameof(NormalGameOptionsV12.AreInvalid))]
     public static class InvalidOptionsPatches
     {
         [SuppressMessage("ReSharper", "UnusedMember.Global")]
-        public static bool Prefix(NormalGameOptionsV11 __instance, [HarmonyArgument(0)] int maxExpectedPlayers)
+        public static bool Prefix(NormalGameOptionsV12 __instance, [HarmonyArgument(0)] int maxExpectedPlayers)
         {
             return __instance.MaxPlayers > maxExpectedPlayers ||
                    __instance.NumImpostors < 1 ||
                    __instance.NumImpostors + 1 > maxExpectedPlayers / 2 ||
                    __instance.KillDistance is < 0 or > 2 ||
                    __instance.PlayerSpeedMod is <= 0f or > 3f;
-        }
-    }
-
-    [HarmonyPatch(typeof(SecurityLogger), nameof(SecurityLogger.Awake))]
-    public static class SecurityLoggerPatch
-    {
-        [SuppressMessage("ReSharper", "UnusedMember.Global")]
-        public static void Postfix(ref SecurityLogger __instance)
-        {
-            __instance.Timers = new Il2CppStructArray<float>(127);
         }
     }
 
@@ -300,7 +305,7 @@ internal static class Crowded
 
             __instance.AvailableColors.Clear();
 
-            for (var i = 0; i < Palette.PlayerColors.Count; i++)
+            for (var i = 0; i < Palette.PlayerColors.Length; i++)
             {
                 if (!PlayerControl.LocalPlayer || PlayerControl.LocalPlayer.CurrentOutfit.ColorId != i)
                     __instance.AvailableColors.Add(i);
@@ -376,7 +381,7 @@ internal static class Crowded
     }
 }
 
-public class AbstractPagingBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
+public class AbstractPagingBehaviour : MonoBehaviour
 {
     protected const string PageIndexGameObjectName = "CrowdedMod_PageIndex";
 
@@ -449,10 +454,13 @@ public class AbstractPagingBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
     }
 }
 
-public class MeetingHudPagingBehaviour(IntPtr ptr) : AbstractPagingBehaviour(ptr)
+public class MeetingHudPagingBehaviour : AbstractPagingBehaviour
 {
     internal MeetingHud meetingHud = null!;
-    [HideFromIl2Cpp] private IEnumerable<PlayerVoteArea> Targets => meetingHud.playerStates.OrderBy(p => p.AmDead);
+#if IL2CPP
+    [HideFromIl2Cpp]
+#endif
+    private IEnumerable<PlayerVoteArea> Targets => meetingHud.playerStates.OrderBy(p => p.AmDead);
 
     protected override int MaxPageIndex => (Targets.Count() - 1) / MaxPerPage;
 
@@ -497,11 +505,14 @@ public class MeetingHudPagingBehaviour(IntPtr ptr) : AbstractPagingBehaviour(ptr
     }
 }
 
-public class ShapeShifterPagingBehaviour(IntPtr ptr) : AbstractPagingBehaviour(ptr)
+public class ShapeShifterPagingBehaviour : AbstractPagingBehaviour
 {
     public ShapeshifterMinigame shapeshifterMinigame = null!;
     private TextMeshPro PageText = null!;
-    [HideFromIl2Cpp] private IEnumerable<ShapeshifterPanel> Targets => shapeshifterMinigame.potentialVictims.ToArray();
+#if IL2CPP
+    [HideFromIl2Cpp]
+#endif
+    private IEnumerable<ShapeshifterPanel> Targets => shapeshifterMinigame.potentialVictims.ToArray();
 
     protected override int MaxPageIndex => (Targets.Count() - 1) / MaxPerPage;
 
@@ -533,8 +544,8 @@ public class ShapeShifterPagingBehaviour(IntPtr ptr) : AbstractPagingBehaviour(p
 
                 buttonTransform.localPosition =
                     new(
-                        shapeshifterMinigame.XStart + (shapeshifterMinigame.XOffset * col),
-                        shapeshifterMinigame.YStart + (shapeshifterMinigame.YOffset * row),
+                        shapeshifterMinigame.XStart + shapeshifterMinigame.XOffset * col,
+                        shapeshifterMinigame.YStart + shapeshifterMinigame.YOffset * row,
                         buttonTransform.localPosition.z
                     );
             }
@@ -545,11 +556,14 @@ public class ShapeShifterPagingBehaviour(IntPtr ptr) : AbstractPagingBehaviour(p
     }
 }
 
-public class VitalsPagingBehaviour(IntPtr ptr) : AbstractPagingBehaviour(ptr)
+public class VitalsPagingBehaviour : AbstractPagingBehaviour
 {
     public VitalsMinigame vitalsMinigame = null!;
     private TextMeshPro PageText = null!;
-    [HideFromIl2Cpp] private IEnumerable<VitalsPanel> Targets => vitalsMinigame.vitals.ToArray();
+#if IL2CPP
+    [HideFromIl2Cpp]
+#endif
+    private IEnumerable<VitalsPanel> Targets => vitalsMinigame.vitals.ToArray();
 
     protected override int MaxPageIndex => (Targets.Count() - 1) / MaxPerPage;
 
@@ -584,8 +598,8 @@ public class VitalsPagingBehaviour(IntPtr ptr) : AbstractPagingBehaviour(ptr)
 
                 panelTransform.localPosition =
                     new(
-                        vitalsMinigame.XStart + (vitalsMinigame.XOffset * col),
-                        vitalsMinigame.YStart + (vitalsMinigame.YOffset * row),
+                        vitalsMinigame.XStart + vitalsMinigame.XOffset * col,
+                        vitalsMinigame.YStart + vitalsMinigame.YOffset * row,
                         panelTransform.localPosition.z
                     );
             }
